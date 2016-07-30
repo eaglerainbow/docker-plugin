@@ -94,6 +94,13 @@ public class DockerCloud extends Cloud {
      */
     private static final HashMap<String, Integer> provisionedImages = new HashMap<>();
 
+    /** 
+     * Track the containers which we have started successfully.
+     * Background: There may be containers started by other docker clients
+     * but those are using the images as we do...
+     */
+    private static final Set<String> provisionedContainers = Collections.synchronizedSet(new HashSet<String>());
+    
     @Deprecated
     public DockerCloud(String name,
                        List<? extends DockerTemplate> templates,
@@ -371,6 +378,9 @@ public class DockerCloud extends Cloud {
         LOGGER.info("Trying to run container for {}", dockerTemplate.getDockerTemplateBase().getImage());
         final String containerId = runContainer(dockerTemplate, getClient(), dockerTemplate.getLauncher());
 
+        // remember that we have provisioned this container
+        provisionedContainers.add(containerId);
+        
         InspectContainerResponse ir;
         try {
             ir = getClient().inspectContainerCmd(containerId).exec();
@@ -498,7 +508,47 @@ public class DockerCloud extends Cloud {
 
         return count;
     }
+    
+    /**
+     * Counts the number of instances in Docker currently running that are using the specified image.
+     * Those instances, which are not started by this Hudson instance, are <b>not</b> counted.
+     *
+     * @param imageName If null, all instances are counted. If specified, only those containers using the
+     * specified images are counted
+     */
+    private int countCurrentDockerSlavesByUs(final String imageName) throws Exception {
+        int count = 0;
+        List<Container> containers = getClient().listContainersCmd().exec();
 
+        for (Container container : containers) {
+    		if (!provisionedContainers.contains(container.getId()))
+    			// if the container wasn't started by us, we don't count it
+    			continue;
+    		
+        	if (imageName == null) {
+        		// counting all images, if started by us
+        		count++;
+        	} else {
+        		// counting only if also image is fitting
+        		String containerImage = container.getImage();
+        		if (containerImage.equals(imageName)) {
+        			count++;
+        		}
+        	}
+        }
+
+        return count;
+    }
+
+    /**
+     * notifies this DockerCloud instance that a container, which was started before, 
+     * has now been stopped again.
+     * @param containerId the containerId which was stopped
+     */
+    public void notifyContainerWasStopped(String containerId) {
+    	provisionedContainers.remove(containerId);
+    }
+    
     /**
      * Check not too many already running.
      */
@@ -506,9 +556,12 @@ public class DockerCloud extends Cloud {
         String ami = t.getDockerTemplateBase().getImage();
         int amiCap = t.instanceCap;
 
-        int estimatedTotalSlaves = countCurrentDockerSlaves(null);
-        int estimatedAmiSlaves = countCurrentDockerSlaves(ami);
+        int estimatedTotalSlaves = countCurrentDockerSlavesByUs(null);
+        int estimatedAmiSlaves = countCurrentDockerSlavesByUs(ami);
 
+        LOGGER.info("There is/are {} container(s) running from us (Container Cap is set to {})", estimatedTotalSlaves, this.getContainerCap());
+        LOGGER.info("of those {} container(s) are running with image '{}' (Instance Limit is set to {})", estimatedAmiSlaves, ami, t.getInstanceCap());
+        
         synchronized (provisionedImages) {
             int currentProvisioning = 0;
             if (provisionedImages.containsKey(ami)) {

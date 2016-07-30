@@ -171,6 +171,11 @@ public class DockerSlave extends AbstractCloudSlave {
                 LOGGER.log(Level.SEVERE, "Failed to stop instance " + getContainerId() + " for slave " + name + " due to exception", ex.getMessage());
             }
 
+            // The lifecycle of this container has ended (the container won't be reported anymore)
+            // Therefore, we need to inform the DockerCloud that we are no longer controlling this instance
+            DockerCloud dc = this.getCloud();
+            dc.notifyContainerWasStopped(containerId);
+            
             // If the run was OK, then do any tagging here
             if (theRun != null) {
                 try {
