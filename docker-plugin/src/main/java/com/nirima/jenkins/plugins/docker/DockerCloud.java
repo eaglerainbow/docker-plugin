@@ -81,6 +81,12 @@ public class DockerCloud extends Cloud {
     private int containerCap = 100;
 
     /**
+     * indicates if the DockerCloud should process requests to 
+     * provision new containers or not.
+     */
+    private boolean enabled;
+    
+    /**
      * Is this cloud actually a swarm?
      */
     private transient Boolean _isSwarm;
@@ -104,7 +110,8 @@ public class DockerCloud extends Cloud {
                        int connectTimeout,
                        int readTimeout,
                        String credentialsId,
-                       String version) {
+                       String version,
+                       boolean enabled) {
         super(name);
         Preconditions.checkNotNull(serverUrl);
         this.version = version;
@@ -112,6 +119,8 @@ public class DockerCloud extends Cloud {
         this.serverUrl = sanitizeUrl(serverUrl);
         this.connectTimeout = connectTimeout;
         this.readTimeout = readTimeout;
+
+        this.setEnabled(enabled);
 
         if (templates != null) {
             this.templates = new ArrayList<>(templates);
@@ -124,6 +133,7 @@ public class DockerCloud extends Cloud {
         } else {
             setContainerCap(Integer.parseInt(containerCapStr));
         }
+        
     }
 
     @DataBoundConstructor
@@ -134,7 +144,8 @@ public class DockerCloud extends Cloud {
                        int connectTimeout,
                        int readTimeout,
                        String credentialsId,
-                       String version) {
+                       String version,
+                       boolean enabled) {
         super(name);
         Preconditions.checkNotNull(serverUrl);
         this.version = version;
@@ -142,6 +153,8 @@ public class DockerCloud extends Cloud {
         this.serverUrl = sanitizeUrl(serverUrl);
         this.connectTimeout = connectTimeout;
         this.readTimeout = readTimeout;
+
+        this.setEnabled(enabled);
 
         if (templates != null) {
             this.templates = new ArrayList<>(templates);
@@ -231,8 +244,16 @@ public class DockerCloud extends Cloud {
         try {
             LOGGER.info("Asked to provision {} slave(s) for: {}", new Object[]{excessWorkload, label});
 
+            
             List<NodeProvisioner.PlannedNode> r = new ArrayList<>();
+            // check if we shall provision new containers at all
+            if (!this.enabled) {
+                LOGGER.info("Docker Cloud '{}' is disabled; not provisioning any container.", this.getDisplayName());
+                return r; // returning the empty set to indicate that
+                // nothing is intended to be provisioned
+            }
 
+            
             final List<DockerTemplate> templates = getTemplates(label);
 
             while (excessWorkload > 0 && !templates.isEmpty()) {
@@ -637,6 +658,7 @@ public class DockerCloud extends Cloud {
         if (containerCap != that.containerCap) return false;
         if (connectTimeout != that.connectTimeout) return false;
         if (readTimeout != that.readTimeout) return false;
+        if (enabled != that.enabled) return false;
         if (templates != null ? !templates.equals(that.templates) : that.templates != null) return false;
         if (serverUrl != null ? !serverUrl.equals(that.serverUrl) : that.serverUrl != null) return false;
         if (version != null ? !version.equals(that.version) : that.version != null) return false;
@@ -662,6 +684,14 @@ public class DockerCloud extends Cloud {
             _isTriton = remoteVersion.getOperatingSystem().equals("solaris");
         }
         return _isTriton;
+    }
+
+    public boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
 
